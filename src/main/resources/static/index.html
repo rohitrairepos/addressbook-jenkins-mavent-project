@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Addressbook</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; background: #f5f7fa; color: #222; }
+        header { background: #1f2937; color: white; padding: 24px; }
+        main { max-width: 1000px; margin: 30px auto; padding: 0 20px; }
+        .toolbar, form { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+        input { padding: 10px; margin: 5px; border: 1px solid #d1d5db; border-radius: 5px; }
+        button { padding: 10px 15px; margin: 5px; border: 0; border-radius: 5px; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; background: white; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e5e7eb; }
+        th { background: #f3f4f6; }
+        .danger { background: #dc2626; color: white; }
+        .primary { background: #2563eb; color: white; }
+    </style>
+</head>
+<body>
+<header><h1>Addressbook</h1><p>Jenkins Maven CI/CD Demo Application</p></header>
+<main>
+    <div class="toolbar">
+        <input id="search" type="search" placeholder="Search contacts...">
+        <button class="primary" onclick="loadContacts()">Search</button>
+    </div>
+
+    <form id="contactForm">
+        <h2>Add Contact</h2>
+        <input name="firstName" placeholder="First name" required>
+        <input name="lastName" placeholder="Last name" required>
+        <input name="email" type="email" placeholder="Email" required>
+        <input name="phone" placeholder="Phone">
+        <input name="company" placeholder="Company">
+        <button class="primary" type="submit">Add Contact</button>
+    </form>
+
+    <table>
+        <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Company</th><th>Action</th></tr></thead>
+        <tbody id="contacts"></tbody>
+    </table>
+</main>
+<script>
+async function loadContacts() {
+    const query = document.getElementById('search').value;
+    const response = await fetch('/api/contacts' + (query ? '?search=' + encodeURIComponent(query) : ''));
+    const contacts = await response.json();
+    document.getElementById('contacts').innerHTML = contacts.map(c => `
+        <tr>
+          <td>${c.firstName} ${c.lastName}</td>
+          <td>${c.email}</td>
+          <td>${c.phone ?? ''}</td>
+          <td>${c.company ?? ''}</td>
+          <td><button class="danger" onclick="deleteContact(${c.id})">Delete</button></td>
+        </tr>`).join('');
+}
+
+async function deleteContact(id) {
+    await fetch('/api/contacts/' + id, {method: 'DELETE'});
+    loadContacts();
+}
+
+document.getElementById('contactForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target).entries());
+    await fetch('/api/contacts', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+    });
+    event.target.reset();
+    loadContacts();
+});
+
+loadContacts();
+</script>
+</body>
+</html>
