@@ -3,10 +3,10 @@ pipeline {
 
     parameters {
         string(name: 'BRANCH', defaultValue: 'master', description: 'Git branch to build')
-        choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'production'], description: 'Deployment environment')
-        choice(name: 'JAVA_VERSION', choices: ['25', '21', '17'], description: 'Java version configured on the Jenkins agent')
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'production'], description: 'Target environment')
         booleanParam(name: 'RUN_TESTS', defaultValue: true, description: 'Run Maven tests')
-        booleanParam(name: 'ARCHIVE_ARTIFACT', defaultValue: true, description: 'Archive the generated JAR')
+        booleanParam(name: 'BUILD_DOCKER', defaultValue: true, description: 'Build the Docker image')
+        string(name: 'IMAGE_TAG', defaultValue: 'latest', description: 'Docker image tag')
     }
 
     tools {
@@ -15,6 +15,8 @@ pipeline {
     }
 
     environment {
+        APP_NAME = 'addressbook-jenkins-maven-project'
+        DOCKER_IMAGE = "addressbook-jenkins-maven-project:${IMAGE_TAG}"
         MAVEN_OPTS = '-Dmaven.repo.local=.m2/repository'
     }
 
@@ -55,9 +57,15 @@ pipeline {
         }
 
         stage('Archive') {
-            when { expression { params.ARCHIVE_ARTIFACT } }
             steps {
                 archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+            }
+        }
+
+        stage('Docker Build') {
+            when { expression { params.BUILD_DOCKER } }
+            steps {
+                sh 'docker build -t "$DOCKER_IMAGE" .'
             }
         }
 
