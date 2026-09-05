@@ -1,0 +1,181 @@
+pipeline {
+    agent { label 'ubuntu-agent' }
+
+    parameters {
+        string(name: 'BRANCH', defaultValue: 'master', description: 'Git branch to build')
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'production'], description: 'Target environment')
+        choice(
+            name: 'VERSION_BUMP',
+            choices: ['AUTO', 'MAJOR', 'MINOR', 'PATCH'],
+            description: 'AUTO increments PATCH. MAJOR/MINOR/PATCH explicitly select the semantic version change.'
+        )
+        booleanParam(name: 'RUN_TESTS', defaultValue: true, description: 'Run Maven tests')
+        booleanParam(name: 'PUSH_DOCKER', defaultValue: true, description: 'Push the Docker image to Docker Hub')
+    }
+
+    tools {
+        maven 'Maven-3'
+        jdk 'jdk-25'
+    }
+
+    environment {
+        DOCKER_REPO = 'rohitdocker13/deopslabrepo'
+        MAVEN_OPTS = '-Dmaven.repo.local=.m2/repository'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout([$class: 'GitSCM',
+                    branches: [[name: "*/${params.BRANCH}"]],
+                    userRemoteConfigs: [[url: 'https://github.com/rohitrairepos/addressbook-jenkins-mavent-project.git']]
+                ])
+            }
+        }
+
+        stage('Environment') {
+            steps {
+                sh 'java -version'
+                sh 'mvn -version'
+                sh 'docker --version'
+            }
+        }
+
+        stage('Get Next Version') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-credentials',
+                    usernameVariable: 'DOCKERHUB_USERNAME',
+                    passwordVariable: 'DOCKERHUB_TOKEN'
+                )]) {
+                    script {
+                        def version = sh(
+                            script: '''
+                                set -e
+                                TOKEN=$(curl -fsS -X POST \\
+                                  -H 'Content-Type: application/json' \\
+                                  -d "{\"username\":\"$DOCKERHUB_USERNAME\",\"password\":\"$DOCKERHUB_TOKEN\"}" \\
+                                  https://hub.docker.com/v2/users/login/ | sed -n 's/.*"token":"\\([^"]*\\)".*/\\1/p')
+
+                                if [ -z "$TOKEN" ]; then
+                                  echo "Unable to authenticate to Docker Hub" >&2
+                                  exit 1
+                                fi
+
+                                TAGS=$(curl -fsS \\
+                                  -H "Authorization: JWT $TOKEN" \\
+                                  'https://hub.docker.com/v2/repositories/rohitdocker13/deopslabrepo/tags/?page_size=100' \\
+                                  | sed -n 's/.*"name":"\\([0-9][0-9]*\\.[0-9][0-9]*\\.[0-9][0-9]*\\)".*/\\1/p')
+
+                                if [ -z "$TAGS" ]; then
+                                  echo "1.0.0"
+                                else
+                                  printf '%s\\n' "$TAGS" | sort -V | tail -n 1
+                                fi
+                            ''',
+                            returnStdout: true
+                        ).trim()
+
+                        def parts = version.tokenize('.')*.toInteger()
+                        def major = parts[0]
+                        def minor = parts[1]
+                        def patch = parts[2]
+
+                        switch (params.VERSION_BUMP) {
+                            case 'MAJOR':
+                                major++
+                                minor = 0
+                                patch = 0
+                                break
+                            case 'MINOR':
+                                minor++
+                                patch = 0
+                                break
+                            case 'PATCH':
+                                patch++
+                                break
+                            case 'AUTO':
+                                patch++
+                                break
+                        }
+
+                        env.VERSION = "${major}.${minor}.${patch}"
+                        env.DOCKER_IMAGE = "${env.DOCKER_REPO}:${env.VERSION}"
+
+                        echo "Latest Docker Hub semantic version: ${version}"
+                        echo "Version bump: ${params.VERSION_BUMP}"
+                        echo "New Docker image version: ${env.VERSION}"
+                    }
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'mvn -B -DskipTests clean package'
+            }
+        }
+
+        stage('Test') {
+            when { expression { params.RUN_TESTS } }
+            steps {
+                sh 'mvn -B test'
+            }
+            post {
+                always {
+                    junit allowEmptyResults: true, testResults: 'target/surefire-reports/*.xml'
+                }
+            }
+        }
+
+        stage('Archive') {
+            steps {
+                archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                sh 'docker build -t "$DOCKER_IMAGE" .'
+            }
+        }
+
+        stage('Docker Push') {
+            when { expression { params.PUSH_DOCKER } }
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-credentials',
+                    usernameVariable: 'DOCKERHUB_USERNAME',
+                    passwordVariable: 'DOCKERHUB_TOKEN'
+                )]) {
+                    sh '''
+                        set -e
+                        echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+                        docker push "$DOCKER_IMAGE"
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                echo "Simulating deployment of ${env.DOCKER_IMAGE} to ${params.ENVIRONMENT}"
+                sh 'mkdir -p deployment/${ENVIRONMENT}'
+                sh 'echo "${DOCKER_IMAGE}" > deployment/${ENVIRONMENT}/image.txt'
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline completed successfully. Docker image: ${env.DOCKER_IMAGE}"
+        }
+        failure {
+            echo 'Pipeline failed. Check the stage logs.'
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
