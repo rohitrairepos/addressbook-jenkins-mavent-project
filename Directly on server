@@ -1,0 +1,9 @@
+# Run the packaged application directly on a Linux server
+
+java -jar target/addressbook-jenkins-maven-project-1.0.0.jar
+
+# Run in the background
+nohup java -jar target/addressbook-jenkins-maven-project-1.0.0.jar > addressbook.log 2>&1 &
+
+# Verify the application
+curl http://localhost:8080/
