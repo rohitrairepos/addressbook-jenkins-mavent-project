@@ -1,0 +1,9 @@
+services:
+  addressbook:
+    image: addressbook-jenkins-maven-project:${IMAGE_TAG:-latest}
+    container_name: addressbook-prod
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    environment:
+      JAVA_OPTS: "-Xms256m -Xmx512m"
