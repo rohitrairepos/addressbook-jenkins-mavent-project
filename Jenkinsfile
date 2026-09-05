@@ -6,6 +6,7 @@ pipeline {
         choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'production'], description: 'Target environment')
         booleanParam(name: 'RUN_TESTS', defaultValue: true, description: 'Run Maven tests')
         booleanParam(name: 'BUILD_DOCKER', defaultValue: true, description: 'Build the Docker image')
+        booleanParam(name: 'PUSH_DOCKER', defaultValue: true, description: 'Push the Docker image to Docker Hub')
         string(name: 'IMAGE_TAG', defaultValue: 'latest', description: 'Docker image tag')
     }
 
@@ -16,7 +17,7 @@ pipeline {
 
     environment {
         APP_NAME = 'addressbook-jenkins-maven-project'
-        DOCKER_IMAGE = "addressbook-jenkins-maven-project:${IMAGE_TAG}"
+        DOCKER_IMAGE = "rohitdocker13/deopslabrepo:${IMAGE_TAG}"
         MAVEN_OPTS = '-Dmaven.repo.local=.m2/repository'
     }
 
@@ -34,7 +35,9 @@ pipeline {
             steps {
                 sh 'java -version'
                 sh 'mvn -version'
+                sh 'docker --version'
                 sh 'echo "Deploy environment: ${ENVIRONMENT}"'
+                sh 'echo "Docker image: ${DOCKER_IMAGE}"'
             }
         }
 
@@ -66,6 +69,28 @@ pipeline {
             when { expression { params.BUILD_DOCKER } }
             steps {
                 sh 'docker build -t "$DOCKER_IMAGE" .'
+            }
+        }
+
+        stage('Docker Push') {
+            when {
+                allOf {
+                    expression { params.BUILD_DOCKER }
+                    expression { params.PUSH_DOCKER }
+                }
+            }
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-credentials',
+                    usernameVariable: 'DOCKERHUB_USERNAME',
+                    passwordVariable: 'DOCKERHUB_TOKEN'
+                )]) {
+                    sh '''
+                        echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+                        docker push "$DOCKER_IMAGE"
+                        docker logout
+                    '''
+                }
             }
         }
 
