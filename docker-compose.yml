@@ -1,0 +1,10 @@
+services:
+  addressbook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: addressbook-jenkins-maven-project:latest
+    container_name: addressbook
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
